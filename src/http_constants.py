@@ -2,6 +2,7 @@ from enum import Enum
 
 
 HTTP_VERSIONS = ("HTTP/1.0", "HTTP/1.1", "HTTP/2.0")
+HTTP_METHODS = ("GET", "HEAD")
 
 class HttpStatusCode(Enum):
     OK = "200 OK"

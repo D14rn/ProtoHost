@@ -1,13 +1,13 @@
 import socket
 from pathlib import Path
 from .http_parser import HttpParser
-from .http_request import HttpRequest
 from .http_response import *
 from .http_constants import HttpStatusCode
+from .http_validator import HttpValidator
 
 
 routes = {
-    "/": "/index.html",
+    "/": "index.html",
 }
 
 supported_versions = ("HTTP/1.0", "HTTP/1.1")
@@ -27,62 +27,68 @@ class HttpServer:
 
         while True:
             default_headers = {
-                "Content-Length": "0"
+                "Content-type": "text/html; charset=UTF-8",
+                "Content-Length": "0",
             }
 
             client_conn, client_addr = self.sock.accept()
             print("NEW CONNECTION FROM", client_addr)
 
             data = client_conn.recv(1024).decode('utf-8')
-            print(data)
-            print(repr(data))
             header_end_idx = data.find("\r\n\r\n")
             if (header_end_idx == -1):
-                client_conn.sendall(create_bad_request_response("HTTP/1.0", default_headers))
+                client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
                 client_conn.close()
                 continue
 
-            try:
-                requestline, raw_headers = HttpParser.split_requesthead(data[:header_end_idx])
-                headers = HttpParser.parse_headers(raw_headers)
-                method, uri, version = HttpParser.parse_requestline(requestline)
-            except:
-                client_conn.sendall(create_bad_request_response("HTTP/1.0", default_headers))
-                client_conn.close()
-                continue
+            split_requesthead = HttpParser.split_requesthead(data[:header_end_idx])
 
-            if not version in supported_versions:
-                client_conn.sendall(create_http_version_not_supported_response("HTTP/1.0", default_headers))
+            if split_requesthead is None:
+                client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
                 client_conn.close()
-                continue
+            
+            request_line, raw_headers = split_requesthead
 
-            if not method in supported_methods:
-                client_conn.sendall(create_http_method_not_implemented_response("HTTP/1.0", default_headers))
+            parsed_requestline = HttpParser.parse_requestline(request_line)
+
+            if parsed_requestline is None:
+                client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
                 client_conn.close()
-                continue
 
-            print(uri)
-            print(routes[uri])
-            x = Path(__file__).parent.parent.resolve()
-            print(x)
-            y = x / f"public{routes[uri]}"
-            print(y)
-            if (y).exists():
-                print("route match")
-                with open(y, "rb") as f:
-                    temp_data = f.read()
+            method, uri, version = parsed_requestline
+
+            if not HttpValidator.validate_method(method):
+                client_conn.sendall(HttpResponseFactory.method_not_implemented("HTTP/1.0", default_headers))
+                client_conn.close()
+
+            if not HttpValidator.validate_version(version):
+                client_conn.sendall(HttpResponseFactory.version_not_supported("HTTP/1.0", default_headers))
+                client_conn.close()
+
+            parsed_headers = HttpParser.parse_headers(raw_headers)
+
+            if parsed_headers is None:
+                client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
+                client_conn.close()
+
+            public_folder = Path(__file__).parent.parent.resolve() / "public"
+
+            target_file = public_folder / routes[uri]
+
+            if (target_file).exists():
+                with open(target_file, "rb") as f:
+                    response_body = f.read()
             else:
-                create_not_found_response("HTTP/1.0", default_headers)
+                client_conn.sendall(HttpResponseFactory.not_found("HTTP/1.0", default_headers))
+                client_conn.close()
 
-            html = temp_data
+            default_headers["Content-Length"] = str(len(response_body))
 
-            # client_conn.sendall(get_error_response())
-            # html = f"<p>Headers</p><p>{headers}</p><p>Method: {method}</p><p>URI: {uri}</p><p>Version: {version}</p>".encode()
-            default_headers["Content-Length"] = str(len(html))
-            head = create_response_head("HTTP/1.0", HttpStatusCode.OK, default_headers)
+            response_head = HttpResponseFactory.create_response_head(HttpResponseLine("HTTP/1.0", HttpStatusCode.OK), HttpHeaders(default_headers))
+
             if method == "HEAD":
-                client_conn.sendall(head)
+                client_conn.sendall(response_head)
             else:
-                temp = head + html
+                temp = response_head + response_body
                 client_conn.sendall(temp)
             client_conn.close()
