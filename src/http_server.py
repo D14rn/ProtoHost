@@ -7,7 +7,7 @@ from .http_validator import HttpValidator
 
 
 routes = {
-    "/": "index.html",
+    "/": "index.html"
 }
 
 supported_versions = ("HTTP/1.0", "HTTP/1.1")
@@ -46,6 +46,7 @@ class HttpServer:
             if split_requesthead is None:
                 client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
                 client_conn.close()
+                continue
             
             request_line, raw_headers = split_requesthead
 
@@ -54,22 +55,31 @@ class HttpServer:
             if parsed_requestline is None:
                 client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
                 client_conn.close()
+                continue
 
             method, uri, version = parsed_requestline
+
+            if uri not in routes:
+                client_conn.sendall(HttpResponseFactory.not_found("HTTP/1.0", default_headers))
+                client_conn.close()
+                continue
 
             if not HttpValidator.validate_method(method):
                 client_conn.sendall(HttpResponseFactory.method_not_implemented("HTTP/1.0", default_headers))
                 client_conn.close()
+                continue
 
             if not HttpValidator.validate_version(version):
                 client_conn.sendall(HttpResponseFactory.version_not_supported("HTTP/1.0", default_headers))
                 client_conn.close()
+                continue
 
             parsed_headers = HttpParser.parse_headers(raw_headers)
 
             if parsed_headers is None:
                 client_conn.sendall(HttpResponseFactory.bad_request("HTTP/1.0", default_headers))
                 client_conn.close()
+                continue
 
             public_folder = Path(__file__).parent.parent.resolve() / "public"
 
@@ -81,6 +91,7 @@ class HttpServer:
             else:
                 client_conn.sendall(HttpResponseFactory.not_found("HTTP/1.0", default_headers))
                 client_conn.close()
+                continue
 
             default_headers["Content-Length"] = str(len(response_body))
 
