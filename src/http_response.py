@@ -1,89 +1,49 @@
-from typing import NamedTuple
+import socket
 from .http_constants import HttpStatusCode
 
-
-class HttpResponseLine(NamedTuple):
-    version: str
-    status_code: HttpStatusCode
-
-    def __str__(self):
-        return f"{self.version} {self.status_code.value}\r\n"
-
-class HttpHeaders(NamedTuple):
-    headers: dict[str, str]
-
-    def __str__(self):
-        return "".join(f"{name}: {value}\r\n" for name, value in self.headers.items())
-
-class HttpResponseHead(NamedTuple):
-    response_line: HttpResponseLine
-    headers: HttpHeaders
-
-    def __str__(self):
-        return str(self.response_line) + str(self.headers)
-
-class HttpResponseBody(NamedTuple):
-    body: bytes
-
-class HttpResponse(NamedTuple):
-    head: HttpResponseHead
-    body: HttpResponseBody = None
-
-    @property
-    def content_length(self):
-        return len(self.body)
-
-    @content_length.setter
-    def content_length(self, length: str):
-        self.head.headers["Content-Length"] = length
-
-
-class HttpResponseFactory:
-    @staticmethod
-    def create_response_head(response_line: HttpResponseLine, headers: HttpHeaders) -> bytes:
-        return ((
-            f"{response_line}"
-            f"{headers}"
-            "\r\n"
-        )).encode()
+class HttpResponseHandler:
+    def __init__(self, conn: socket.socket, http_version: str) -> None:
+        self.conn = conn
+        self.http_version = http_version
+        self.status_code: str = HttpStatusCode.OK.value
+        self.headers = self.create_default_headers()
+        self.body: bytes = "".encode()
     
     @staticmethod
-    def create_default_headers():
-        return HttpHeaders({
+    def create_default_headers() -> dict[str, str]:
+        return {
+            "Content-Type": "text/html; charset=UTF-8",
             "Content-Length": "0"
-        })
+        }
+
+    def send_response(self) -> None:
+        self.conn.sendall(self.create_response())
+        self.conn.close()
     
-    @classmethod
-    def create_error_response(cls, version: str, status_code: HttpStatusCode):
-        response_line = HttpResponseLine(version, status_code)
-        headers = cls.create_default_headers()
-        head = HttpResponseHead(response_line, headers)
-        return HttpResponse(head)
+    def send_response_head(self) -> None:
+        self.conn.sendall(self.create_response_head())
+        self.conn.close()
     
-    @classmethod
-    def not_found(cls, version: str, headers: HttpHeaders):
-        return cls.create_response_head(
-            HttpResponseLine(version, HttpStatusCode.NOT_FOUND),
-            headers
-        )
+    def create_response(self) -> bytes:
+        return self.create_response_head() + self.body
     
-    @classmethod
-    def version_not_supported(cls, version: str, headers: HttpHeaders):
-        return cls.create_response_head(
-            HttpResponseLine(version, HttpStatusCode.VERSION_NOT_SUPPORTED),
-            headers
-        )
+    def set_status_code(self, status_code: HttpStatusCode) -> None:
+        self.status_code = status_code.value
     
-    @classmethod
-    def method_not_implemented(cls, version: str, headers: HttpHeaders):
-        return cls.create_response_head(
-            HttpResponseLine(version, HttpStatusCode.METHOD_NOT_IMPLEMENTED),
-            headers
-        )
-    
-    @classmethod
-    def bad_request(cls, version: str, headers: HttpHeaders):
-        return cls.create_response_head(
-            HttpResponseLine(version, HttpStatusCode.BAD_REQUEST),
-            headers
-        )
+    def set_body(self, body: bytes) -> None:
+        self.body = body
+        self.headers["Content-Length"] = len(body)
+
+    def create_response_head(self) -> bytes:
+        response_line = self.create_response_line()
+        headers = self.headers_to_str()
+
+        head = response_line + headers + "\r\n"
+
+        return head.encode()
+
+    def create_response_line(self) -> str:
+        return f"{self.http_version} {self.status_code}\r\n"
+
+    def headers_to_str(self) -> str:
+        return "".join(f"{name}: {value}\r\n" for name, value in self.headers.items())

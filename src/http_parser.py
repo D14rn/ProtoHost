@@ -24,9 +24,9 @@ class HttpParser:
         return (method, uri, version)
 
     @staticmethod
-    def parse_headers(raw_headers: str):
-        # We assume that the requestline and the last two \r\n have been removed
-        headers = raw_headers.split("\r\n") # CRLF defined in RFC2616 & RFC7230
+    def parse_headers(raw_headers: str) -> dict[str, str] | None:
+        # We assume that the requestline and the \r\n\r\n have been removed
+        headers = [header for header in raw_headers.split("\r\n") if header] # CRLF defined in RFC2616 & RFC7230
         header_dict = {}
         for header in headers:
             parts = header.split(": ")
